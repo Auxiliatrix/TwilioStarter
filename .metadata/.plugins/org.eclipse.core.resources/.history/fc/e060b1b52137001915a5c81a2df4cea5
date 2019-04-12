@@ -1,0 +1,44 @@
+from Flask import Flask, Request
+from twilio.twiml.voice_response import Gather, VoiceResponse, Say
+
+app = Flask(__name__)
+
+class Parrot:
+    
+    def __init__(self):
+        self.app = Flask(__name__)
+
+@app.route("/answer", methods=['GET', 'POST'])
+def answer():
+    """Respond to incoming phone calls with a brief message."""
+    response = VoiceResponse()
+    gather = Gather(input='speech', action='/gather')
+    gather.say('Welcome to Wing! Please give any speech input.')
+    response.append(gather)
+    return str(response)
+
+@app.route("/gather", methods=['GET', 'POST'])
+def gather():
+    text = ""
+    if 'SpeechResult' in request.values:
+        text = request.values['SpeechResult']
+    print(text)
+    if 'test' in text.lower():
+        response = execute_testing()
+        return str(response)
+    else:
+        response = execute_completed()
+        return str(response)
+
+def execute_testing():
+    response = VoiceResponse()
+    response.say("Testing completed.")
+    return response
+
+def execute_completed():
+    response = VoiceResponse()
+    response.say("Thank you for your input.")
+    return response
+
+if __name__ == "__main__":
+    app.run(debug=True)

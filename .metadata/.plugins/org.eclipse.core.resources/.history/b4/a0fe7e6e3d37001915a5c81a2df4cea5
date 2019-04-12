@@ -1,0 +1,104 @@
+import threading
+
+from flask import Flask, request
+
+from twilio.twiml.voice_response import Gather, VoiceResponse, Say
+from twilio.rest import Client
+
+
+class Parrot:
+
+    def __init__(self, account_sid : str, auth_token : str, url, source):
+        self.account_sid = account_sid
+        self.auth_token = auth_token
+        self.client = Client(self.account_sid, self.auth_token)
+        
+        self.url = url
+        self.source = source
+        
+        self.app = Flask(__name__)
+        
+        serverThread = RunApp(self.app)
+        serverThread.start()
+    
+    
+    def call_and_collect(self, promptvardict : dict, target : str) -> dict:
+        results = {}            # Initialize results to return
+        e = threading.Event()   # Create event for when the call is completed
+        
+        keylist = [key for key in promptvardict.keys()] # Orders the keyset
+        for x in range(len(keylist)):                                   # Range used instead of unpacking because previous values need to be accessed
+            prompt = keylist[x]         # Prompt to ask user
+            var = promptvardict[prompt] # Name to store route and result on
+            
+            if x == 0:                                                  # On the first iteration, makes the initial answer function
+                @self.app.route('/answer', methods=['GET','POST'])               # Routes to /answer
+                def answer():
+                    response = VoiceResponse()
+                    gather = Gather(input='speech', action='/' + var)       # Calls the next function
+                    gather.say(prompt)                                      # Prompts for the next function
+                    response.append(gather)
+                    e.set()                                                 # Marks that call has been completed
+                    return str(response)                                    # Returns collective response
+            
+            if x == len(keylist)-1:                                     # If this is the last iteration
+                @self.app.route('/' + var, methods=['GET','POST'])               # Routes to var name
+                def end():
+                    response = VoiceResponse()
+                    if 'SpeechResult' in request.values:
+                        results[var] = request['SpeechResult']              # Adds response to result map
+                    response.say("Thank you for your time.")                # Doesn't call any further functions
+                    return str(response)                                    # Returns collective response
+            else:                                                       # If this isn't the last iteration
+                nextprompt = keylist[x+1]           # Unpack prompt for next function
+                nextvar = promptvardict[nextprompt] # Unpack var for next function
+                
+                @self.app.route('/' + var, methods=['GET', 'POST'])              # Routes to var name
+                def gather():
+                    response = VoiceResponse()
+                    if 'SpeechResult' in request.values:
+                        results[var] = request['SpeechResult']              # Adds response to result map
+                    gather = Gather(input='Speech', actions='/' + nextvar)  # Calls next function
+                    gather.say(nextprompt)                                  # Prompts for the next function
+                    response.append(gather)
+                    return str(response)                                    # Returns collective response
+        self.call(target)       # Calls target
+        e.wait()                # Wait until call has been completed
+        return results          # Return results
+
+
+    def __call__(self, target : str):
+        call = self.client.calls.create(
+                        url=self.url,
+                        to=target,
+                        from_=self.source
+                    )
+        print(call.sid)
+
+
+
+class RunApp(threading.Thread): # Thread to run server
+
+    def __init__(self, app):
+        self.app = app
+
+    
+    def run(self):
+        self.app.run(debug=True)
+
+
+
+if __name__ == '__main__':
+    account_sid = 'AC368bf9b5ff8a94b7349905f62ead1ff6'
+    auth_token = 'f0e0ebb1cf8c2b15200034c1cde87d85'
+    url = 'http://059c6343.ngrok.io/answer'
+    source = '+18315349412'
+    
+    parrotClient = Parrot(account_sid, auth_token, url, source)
+    
+    promptvardict = {'Please name a color.' : 'color', 'Please name a fruit.' : 'fruit'}
+    target = '+14085317415'
+    results = parrotClient.call_and_collect(promptvardict, target)
+    
+    for key, value in results.items():
+        
